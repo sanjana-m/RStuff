@@ -91,6 +91,52 @@ fund_names <- function(data){
   a <- as.vector(unique(data[,'SCHEMECODE']))
 }
 
+# Hashes funds based on fund names, returns a list
+hash2 <- function(data){
+  keys = fund_names(data)
+  h <- list()
+  for(i in 1:nrow(data)){
+    h[[data[i,'SCHEMECODE']]] <- rbind(h[[data[i,'SCHEMECODE']]],data[i,])
+  }
+
+  for(x in h){
+    x <- x[with(x,order(-Units)),]
+    pos_x <- x[1,]
+    j <- 2
+    while((x[j,'Units'] >= 0 ) && (j <= nrow(x))){
+      pos_x <- rbind(pos_x, x[j,])
+      j <- j+1
+    }
+
+    pos_x <- pos_x[order(as.Date(pos_x$Date, format="%d-%m-%Y"),pos_x$Units),]
+
+    # j = nrow(x) if there are no redemptions
+
+    if(j < nrow(x)){
+      sum <- 0
+      while(j < nrow(x)){
+        sum <- sum + x[j,"Units"]
+        x <- x[-j,]
+      }
+      if(j == nrow(x)){
+        x[nrow(x),"Units"] <- x[nrow(x),"Units"] + sum
+        pos_x <- rbind(pos_x,x[nrow(x),])
+      }
+    }
+    else if(j == nrow(x)){
+      
+      # If only last row has redemptions
+
+      if(x[j,"Units"] < 0 ){
+        pos_x <- rbind(pos_x, x[j,])
+      }
+    }
+    h[[x[1,'SCHEMECODE']]] <- pos_x
+  }
+  h
+}
+
+
 # Returns a list of funds and their transactions
 fund_data <- function(data){
   a <- fund_names(data)
@@ -98,19 +144,20 @@ fund_data <- function(data){
   amts <- c()
   dates <- c()
   count <- 1
+  h1 <- hash2(data)
 
-  for(i in a){
-    x <- rbind(data[1,])
-    for(j in 1:nrow(data)){
-      if(data[j,'SCHEMECODE'] == i){
-        x <- rbind(x,data[j,])
-      }
-    }
-    x <- x[-1,]
+  for(x in h1){
+    # x <- rbind(data[1,])
+    # for(j in 1:nrow(data)){
+    #   if(data[j,'SCHEMECODE'] == i){
+    #     x <- rbind(x,data[j,])
+    #   }
+    # }
+    # x <- x[-1,]
     z <- remove_na(x)
-    print(paste("INDEX HERE - ",i," COUNT - ",count))
+    print(paste("INDEX HERE - ",count))
     if(!is.null(z)){
-      z <- add_redemptions(z)
+      # z <- add_redemptions(z)
       w <- knock_off(z)
 
       if(!is.null(w)){
@@ -179,7 +226,7 @@ remove_na <- function(a){
 # Balances redemptions with purchases
 knock_off <- function(a){
   i <- 1
-  if(nrow(a)==1){
+  if((nrow(a)==1) || (a[nrow(a), 'Units'] > 0)){
     return(a)
   }
   while((i < nrow(a)) && ((a[nrow(a),'Units'] + a[i,'Units']) < 0)){
@@ -217,15 +264,16 @@ knock_off <- function(a){
 
 # Calculates extended XIRR
 ext_xirr <- function(data){
-  data <- sort_data(data)
   amts <- c()
   dates <- c()
   data[,"TRANSTYPE"] <- gsub("\\s*","",data[,'TRANSTYPE'])
   data[,"TRANSTYPE"] <- gsub("SI","PURA",data[,'TRANSTYPE'])
   data[,"TRANSTYPE"] <- gsub("SO","RED",data[,'TRANSTYPE'])
   data[,"TRANSTYPE"] <- gsub("TI","PUR",data[,'TRANSTYPE'])
-
-    results <- fund_data(data)
+  data <- sort_data(data)
+  print(paste("FUND TYPES - ",unique(data[,"TRANSTYPE"])))
+  
+  results <- fund_data(data)
 
   list_funds <- results[[1]]
   amts <- results[[2]]
@@ -264,6 +312,7 @@ ext_xirr <- function(data){
 
   print(paste("SUM - ",sum(amts)))
   number <- readline(prompt="Enter present value: ")
+  # number <- 11000000
   number <- (as.numeric(number)) * (-1)
 
   amts <- c(amts,number)
